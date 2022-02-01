@@ -20,10 +20,12 @@ library(randomForest)
 
 ```
 
+Reading in the Data
 ```{r}
 cancer = read.csv("cancer.csv")
 ```
 
+Cleaning up the data
 ```{r}
 #Remove the last "x" column
 cancer = cancer[, -c(33)]
@@ -31,6 +33,12 @@ cancer = cancer[, -c(33)]
 #Convert the diagnosis variable to a factor
 cancer[2] = as.factor(cancer$diagnosis)
 
+```
+
+Testing a Graph
+```{r}
+ggplot(cancer, aes(x=diagnosis, y=radius_mean)) +
+  geom_point()
 ```
 
 
