@@ -1,0 +1,35 @@
+---
+title: "Cancer Analysis"
+author: "Joseph Lee (sl5nj), Umar Abushaban (uba6z), William Cull (wjc5rt)"
+date: "2/1/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+cancer <- read.csv("~/Dev/DS4002/4002_handsOn/project1/cancer.csv")
+```
+
+```{r}
+dim(cancer)
+```
+
+```{r}
+table(cancer$diagnosis)
+```
+
+```{r}
+
+```
+
+
+
