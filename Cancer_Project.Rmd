@@ -7,29 +7,32 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r}
+```{r, include=FALSE}
+#Load libraries
+#library(e1071)
 library(tidyverse)
+library(plotly)
+library(htmltools)
+library(devtools)
+library(caret)
+library(NbClust)
+library(randomForest)
+
 ```
 
 ```{r}
-cancer <- read.csv("~/Dev/DS4002/4002_handsOn/project1/cancer.csv")
+cancer = read.csv("/Users/Umar/Desktop/School/UVA/Spring2022/DS4002/cancer_proj/cancer.csv")
 ```
 
 ```{r}
-dim(cancer)
-```
+#Remove the last "x" column
+cancer = cancer[, -c(33)]
 
-```{r}
-table(cancer$diagnosis)
-```
-
-```{r}
+#Convert the diagnosis variable to a factor
+cancer[2] = as.factor(cancer$diagnosis)
 
 ```
+
 
 
 
