@@ -21,7 +21,7 @@ library(randomForest)
 ```
 
 ```{r}
-cancer = read.csv("/Users/Umar/Desktop/School/UVA/Spring2022/DS4002/cancer_proj/cancer.csv")
+cancer = read.csv("cancer.csv")
 ```
 
 ```{r}
