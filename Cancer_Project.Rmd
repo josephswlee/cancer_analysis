@@ -31,8 +31,6 @@ cancer = cancer[, -c(33)]
 #Convert the diagnosis variable to a factor
 cancer[2] = as.factor(cancer$diagnosis)
 
-#
-
 ```
 
 
