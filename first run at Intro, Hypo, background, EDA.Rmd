@@ -1,0 +1,94 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+
+set.seed(1891)
+library(readr)
+
+
+
+cancer$diagnosis <- revalue(cancer$diagnosis, c("M"=1))
+cancer$diagnosis <- revalue(cancer$diagnosis, c("B"=0))
+
+cancer$diagnosis <- as.numeric(cancer$diagnosis) 
+
+```
+
+
+
+```{r}
+table(cancer$diagnosis)
+
+summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
+
+```
+
+```{r}
+
+library(corrplot)
+library(corrr)
+library(ggplot2)
+
+cor1 <- cor(x = cancer$diagnosis, y = cancer[2:19], use="complete.obs")
+corrplot(cor1, tl.srt = 25)
+
+```
+
+
+
+```{r}
+
+radius_d <- density(cancer$radius_mean)
+
+plot(radius_d)
+
+smoothness_d <- density(cancer$smoothness_mean)
+
+plot(smoothness_d)
+
+compactness_d <- density(cancer$compactness_mean)
+
+plot(compactness_d)
+
+
+```
+
+
+
+#feature scaling
+```{r}
+# normalization must occur given different scales, kNN is distance based, and metrics are not gaussian in dist.
+
+normalize <- function(x) {
+  return ((x- min(x))/ (max(x)- min(x)))
+}
+
+cancer_norm <- as.data.frame(lapply(cancer[2:19], normalize))
+
+summary(cancer_norm$radius_mean)
+# looks normalized
+
+```
+
+```{r}
+
+# next comes training and model
+
+
+```
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
