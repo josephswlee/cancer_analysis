@@ -17,12 +17,13 @@ library(devtools)
 library(caret)
 library(NbClust)
 library(randomForest)
+library(ggplot2)
 
 ```
 
 Reading in the Data
 ```{r}
-cancer = read.csv("cancer.csv")
+cancer = read.csv("~/Dev/DS4002/4002_handsOn/project1/cancer_analysis/cancer.csv")
 ```
 
 Cleaning up the data
@@ -41,6 +42,77 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean)) +
   geom_point()
 ```
 
+```{r}
+
+set.seed(1891)
+library(readr)
+
+cancer[cancer$diagnosis == "M"] <- 1
+cancer[cancer$diagnosis == "B"] <- 0
+
+cancer$diagnosis <- as.numeric(cancer$diagnosis) 
+
+```
+
+
+```{r}
+table(cancer$diagnosis)
+
+summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
+
+```
+
+```{r}
+
+library(corrplot)
+library(corrr)
+library(ggplot2)
+
+cor1 <- cor(x = cancer$diagnosis, y = cancer[2:19], use="complete.obs")
+corrplot(cor1, tl.srt = 25)
+
+```
+
+
+
+```{r}
+
+radius_d <- density(cancer$radius_mean)
+
+plot(radius_d)
+
+smoothness_d <- density(cancer$smoothness_mean)
+
+plot(smoothness_d)
+
+compactness_d <- density(cancer$compactness_mean)
+
+plot(compactness_d)
+```
+
+
+
+#feature scaling
+```{r}
+# normalization must occur given different scales, kNN is distance based, and metrics are not gaussian in dist.
+
+normalize <- function(x) {
+  return ((x- min(x))/ (max(x)- min(x)))
+}
+
+cancer_norm <- as.data.frame(lapply(cancer[2:19], normalize))
+
+summary(cancer_norm$radius_mean)
+# looks normalized
+
+```
+
+```{r}
+
+# next comes training and model
+
+
+```
 
 
 
