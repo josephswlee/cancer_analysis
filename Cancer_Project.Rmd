@@ -48,8 +48,8 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean)) +
 set.seed(1891)
 library(readr)
 
-cancer[cancer$diagnosis == "M"] <- 1
-cancer[cancer$diagnosis == "B"] <- 0
+cancer$diagnosis[cancer$diagnosis == "M"] <- 2
+cancer$diagnosis[cancer$diagnosis == "B"] <- 1
 
 cancer$diagnosis <- as.numeric(cancer$diagnosis) 
 
