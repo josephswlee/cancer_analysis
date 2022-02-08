@@ -40,10 +40,14 @@ str(cancer)
 cancer$diagnosis = as.factor(cancer$diagnosis)
 ```
 
-Testing a Graph
+Graphing radius by diagnosis
 ```{r}
-ggplot(cancer, aes(x=diagnosis, y=radius_mean)) +
-  geom_point()
+ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Radius", x="Diagnosis", y="Radius",) +
+  scale_color_manual(labels = c("malignant", "benign"), values = c("red", "green")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
 ```
 
 ```{r}
