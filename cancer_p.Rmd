@@ -21,11 +21,6 @@ library(ggplot2)
 library(class)
 ```
 
-```{r}
-#joseph only
-setwd("/Users/sangwoolee/Dev/DS4002/4002_handsOn/project1/cancer_analysis")
-```
-
 Reading in the Data
 ```{r}
 cancer = read.csv("./cancer.csv")
@@ -34,8 +29,8 @@ cancer = read.csv("./cancer.csv")
 Cleaning up the data
 ```{r}
 #convert variable names
-cancer$diagnosis[cancer$diagnosis == "M"] <- 2
-cancer$diagnosis[cancer$diagnosis == "B"] <- 1
+cancer$diagnosis[cancer$diagnosis == "M"] <- 1
+cancer$diagnosis[cancer$diagnosis == "B"] <- 0
 
 #Remove the last "x" column
 cancerdf = cancerdf[, -c(33)]
@@ -54,8 +49,9 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean)) +
 ```{r}
 set.seed(1891)
 library(readr)
-cancer$diagnosis <- as.numeric(cancer$diagnosis) 
-#View(cancer)
+cancer_cor <- cancer
+cancer_cor$diagnosis <- as.numeric(cancer_cor$diagnosis) 
+View(cancer_cor)
 ```
 
 
@@ -68,7 +64,7 @@ summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
 library(corrplot)
 library(corrr)
 library(ggplot2)
-cor1 <- cor(x = cancer$diagnosis, y = cancer[2:19], use="complete.obs")
+cor1 <- cor(x = cancer_cor$diagnosis, y = cancer_cor[2:19], use="complete.obs")
 corrplot(cor1, tl.srt = 25)
 ```
 
@@ -91,7 +87,7 @@ plot(compactness_d)
 normalize <- function(x) {
   return ((x- min(x))/ (max(x)- min(x)))
 }
-cancer_norm <- as.data.frame(lapply(cancer[2:19], normalize))
+cancer_norm <- as.data.frame(lapply(cancer_cor[2:19], normalize))
 summary(cancer_norm$radius_mean)
 # looks normalized
 ```
