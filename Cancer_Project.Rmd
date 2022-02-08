@@ -23,7 +23,8 @@ library(ggplot2)
 
 Reading in the Data
 ```{r}
-cancer = read.csv("~/Dev/DS4002/4002_handsOn/project1/cancer_analysis/cancer.csv")
+#cancer = read.csv("~/Dev/DS4002/4002_handsOn/project1/cancer_analysis/cancer.csv")
+cancer = read.csv("./cancer.csv")
 ```
 
 Cleaning up the data
