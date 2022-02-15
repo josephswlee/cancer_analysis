@@ -212,7 +212,106 @@ fig <- fig %>% add_trace(y=cancer_RF_error$`Benign`, name="Benign")
 fig
 ```
 
+More random forest model
 
+Modified ntree 500 -> 1000 and samplesize 100 -> 200
+```{r}
+set.seed(2023)  
+cancer_RF2 = randomForest((diagnosis)~.,          #<- Formula: response variable ~ predictors.
+                            #   The period means 'use all other variables in the data'.
+                            cancer_train,     #<- A data frame with the variables to be used.
+                            #y = NULL,           #<- A response vector. This is unnecessary because we're specifying a response formula.
+                            #subset = NULL,      #<- This is unnecessary because we're using all the rows in the training data set.
+                            #xtest = NULL,       #<- This is already defined in the formula by the ".".
+                            #ytest = NULL,       #<- This is already defined in the formula by "PREGNANT".
+                            ntree = 1000,        #<- Number of trees to grow. This should not be set to too small a number, to ensure that every input row gets classified at least a few times.
+                            mtry = 5,            #<- Number of variables randomly sampled as candidates at each split. Default number for classification is sqrt(# of variables). Default number for regression is (# of variables / 3).
+                            replace = TRUE,      #<- Should sampled data points be replaced.
+                            #classwt = NULL,     #<- Priors of the classes. Use this if you want to specify what proportion of the data SHOULD be in each class. This is relevant if your sample data is not completely representative of the actual population 
+                            #strata = NULL,      #<- Not necessary for our purpose here.
+                            sampsize = 200,      #<- Size of sample to draw each time.
+                            nodesize = 5,        #<- Minimum numbers of data points in terminal nodes.
+                            #maxnodes = NULL,    #<- Limits the number of maximum splits. 
+                            importance = TRUE,   #<- Should importance of predictors be assessed?
+                            #localImp = FALSE,   #<- Should casewise importance measure be computed? (Setting this to TRUE will override importance.)
+                            proximity = FALSE,    #<- Should a proximity measure between rows be calculated?
+                            norm.votes = TRUE,   #<- If TRUE (default), the final result of votes are expressed as fractions. If FALSE, raw vote counts are returned (useful for combining results from different runs).
+                            do.trace = TRUE,     #<- If set to TRUE, give a more verbose output as randomForest is run.
+                            keep.forest = TRUE,  #<- If set to FALSE, the forest will not be retained in the output object. If xtest is given, defaults to FALSE.
+                            keep.inbag = TRUE)   #<- Should an n by ntree matrix be returned that keeps track of which samples are in-bag in which trees? 
+```
+
+```{r}
+cancer_RF2
+cancer_RF2$call
+cancer_RF2$confusion
+```
+
+```{r}
+cancer_RF_acc2 = sum(cancer_RF2$confusion[row(cancer_RF2$confusion) == 
+                                                col(cancer_RF2$confusion)]) / 
+  sum(cancer_RF2$confusion)
+
+cancer_RF_acc2
+```
+
+```{r}
+# The accuracy of this model is 0.8404
+
+#### Random forest output ####
+
+#View(as.data.frame(cancer_RF$votes))
+
+# The "inbag" argument shows you which data point is included in which trees.
+str(as.data.frame(cancer_RF2$inbag))
+```
+
+```{r}
+#View(as.data.frame(cancer_RF2$inbag))
+
+inbag <- as.data.frame(cancer_RF2$inbag)
+
+sum(inbag[,500])
+```
+
+```{r}
+dim(cancer_RF2$inbag)
+```
+
+```{r}
+err.rate2 <- as.data.frame(cancer_RF2$err.rate)
+err.rate2
+```
+
+```{r}
+#### Visualize random forest results ####
+
+# Let's visualize the results of the random forest.
+# Let's start by looking at how the error rate changes as we add more trees.
+cancer_RF_error2 = data.frame(1:nrow(cancer_RF2$err.rate),
+                                cancer_RF2$err.rate)
+#View(cancer_RF_error2)
+
+colnames(cancer_RF_error2) = c("Number of Trees", "Out of the Box",
+                                 "Benign", "Malignant")
+
+# Add another variable that measures the difference between the error rates, in
+# some situations we would want to minimize this but need to use caution because
+# it could be that the differences are small but that both errors are really high,
+# just another point to track. 
+
+cancer_RF_error2$Diff <- cancer_RF_error2$`Benign`-cancer_RF_error2$`Malignant`
+
+#View(cancer_RF_error)
+
+#rm(fig)
+fig2 <- plot_ly(x=cancer_RF_error2$`Number of Trees`, y=cancer_RF_error2$Diff,name="Diff", type = 'scatter', mode = 'lines')
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Out of the Box`, name="OOB_Er")
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Malignant`, name="Malignant")
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Benign`, name="Benign")
+
+fig2
+```
 
 Graphing radius by diagnosis
 ```{r}
@@ -223,6 +322,10 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
   scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
   scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
 ```
+
+
+
+
 
 ```{r}
 set.seed(1891)
