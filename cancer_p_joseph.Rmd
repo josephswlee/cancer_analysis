@@ -110,10 +110,10 @@ mytry_tune <- function(x){
   xx <- dim(x)[2]-1
   sqrt(xx)
 }
-mytry_tune(cancer) #5.567764
+mytry_tune(cancer) #5.477226
 ```
 
-
+Random Forest
 ```{r}
 set.seed(2023)  
 cancer_RF = randomForest((diagnosis)~.,          #<- Formula: response variable ~ predictors.
@@ -153,6 +153,65 @@ cancer_RF_acc = sum(cancer_RF$confusion[row(cancer_RF$confusion) ==
 
 cancer_RF_acc
 ```
+
+```{r}
+# The accuracy of this model is 0.8404
+
+#### Random forest output ####
+
+#View(as.data.frame(cancer_RF$votes))
+
+# The "inbag" argument shows you which data point is included in which trees.
+str(as.data.frame(cancer_RF$inbag))
+```
+
+```{r}
+#View(as.data.frame(cancer_RF$inbag))
+
+inbag <- as.data.frame(cancer_RF$inbag)
+
+sum(inbag[,500])
+```
+
+```{r}
+dim(cancer_RF$inbag)
+```
+
+```{r}
+err.rate <- as.data.frame(cancer_RF$err.rate)
+err.rate
+```
+
+```{r}
+#### Visualize random forest results ####
+
+# Let's visualize the results of the random forest.
+# Let's start by looking at how the error rate changes as we add more trees.
+cancer_RF_error = data.frame(1:nrow(cancer_RF$err.rate),
+                                cancer_RF$err.rate)
+View(cancer_RF_error)
+
+colnames(cancer_RF_error) = c("Number of Trees", "Out of the Box",
+                                 "Benign", "Malignant")
+
+# Add another variable that measures the difference between the error rates, in
+# some situations we would want to minimize this but need to use caution because
+# it could be that the differences are small but that both errors are really high,
+# just another point to track. 
+
+cancer_RF_error$Diff <- cancer_RF_error$`Benign`-cancer_RF_error$`Malignant`
+
+#View(cancer_RF_error)
+
+#rm(fig)
+fig <- plot_ly(x=cancer_RF_error$`Number of Trees`, y=cancer_RF_error$Diff,name="Diff", type = 'scatter', mode = 'lines')
+fig <- fig %>% add_trace(y=cancer_RF_error$`Out of the Box`, name="OOB_Er")
+fig <- fig %>% add_trace(y=cancer_RF_error$`Malignant`, name="Malignant")
+fig <- fig %>% add_trace(y=cancer_RF_error$`Benign`, name="Benign")
+
+fig
+```
+
 
 
 Graphing radius by diagnosis
