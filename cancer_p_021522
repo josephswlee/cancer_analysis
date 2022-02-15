@@ -1,0 +1,195 @@
+---
+title: "Cancer Analysis"
+author: "Joseph Lee (sl5nj), Umar Abushaban (uba6z), William Cull (wjc5rt)"
+date: "2/1/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include=FALSE}
+#Load libraries
+#library(e1071)
+library(tidyverse)
+library(plotly)
+library(htmltools)
+library(devtools)
+library(caret)
+library(NbClust)
+library(randomForest)
+library(ggplot2)
+library(class)
+library(gmodels)
+```
+
+```{r}
+#joseph only
+setwd("/Users/sangwoolee/Dev/DS4002/4002_handsOn/project1/cancer_analysis")
+```
+
+Reading in the Data
+```{r}
+cancer = read.csv("./cancer.csv")
+```
+
+Cleaning up the data
+```{r}
+#convert variable names
+cancer$diagnosis[cancer$diagnosis == "M"] <- 2
+cancer$diagnosis[cancer$diagnosis == "B"] <- 1
+
+#Remove the last "x" column
+cancerdf = cancerdf[, -c(33)]
+str(cancer)
+#Convert the diagnosis variable to a factor
+#complete.cases(cancer)
+cancer$diagnosis = as.factor(cancer$diagnosis)
+```
+
+Testing a Graph
+```{r}
+ggplot(cancer, aes(x=diagnosis, y=radius_mean)) +
+  geom_point()
+```
+
+```{r}
+set.seed(1891)
+library(readr)
+cancer$diagnosis <- as.numeric(cancer$diagnosis) 
+#View(cancer)
+```
+
+
+```{r}
+table(cancer$diagnosis)
+summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
+```
+
+```{r}
+library(corrplot)
+library(corrr)
+library(ggplot2)
+cor1 <- cor(x = cancer$diagnosis, y = cancer[2:19], use="complete.obs")
+corrplot(cor1, tl.srt = 25)
+```
+
+
+
+```{r}
+radius_d <- density(cancer$radius_mean)
+plot(radius_d)
+smoothness_d <- density(cancer$smoothness_mean)
+plot(smoothness_d)
+compactness_d <- density(cancer$compactness_mean)
+plot(compactness_d)
+```
+
+
+
+#feature scaling
+```{r}
+# normalization must occur given different scales, kNN is distance based, and metrics are not gaussian in dist.
+normalize <- function(x) {
+  return ((x- min(x))/ (max(x)- min(x)))
+}
+cancer_norm <- as.data.frame(lapply(cancer[2:19], normalize))
+summary(cancer_norm$radius_mean)
+# looks normalized
+```
+
+```{r}
+# next comes training formation
+
+cancer_train <- cancer_norm[1:469, ] 
+cancer_test <- cancer_norm[470:569,]  
+
+cancer_train_labels <- cancer_norm[1:469, 1]  
+cancer_test_labels <- cancer_norm[470:569, 1]
+
+cancer_test_labels2 <- cancer[470:569, 1]
+
+# something wrong here^^^^^
+
+```
+
+
+```{r}
+
+chooseK = function(k, train_set, val_set, train_class, val_class){
+  
+  # Build knn with k neighbors considered.
+  set.seed(1)
+  class_knn = knn(train = train_set,    #<- training set cases
+                  test = val_set,       #<- test set cases
+                  cl = train_class,     #<- category for classification
+                  k = k,                #<- number of neighbors considered
+                  use.all = TRUE)       #<- control ties between class assignments#   If true, all distances equal to the kth largest are included
+  conf_mat = table(class_knn, val_class)
+  
+  # Calculate the accuracy#could change this to Sensitivity 
+  accu = sum(conf_mat[row(conf_mat) == col(conf_mat)]) / sum(conf_mat)                         
+  cbind(k = k, accuracy = accu)
+}
+
+knn_diff_k_cancer <- sapply(seq(1,21, by = 2), function(x) chooseK(k = 18,
+train_set = cancer_train,
+val_set = cancer_test,
+ train_class = cancer_train$`diagnosis`,
+ val_class = cancer_test$`diagnosis`))
+
+knn_diff_k_cancer
+```
+
+
+```{r}
+
+
+
+
+cancer_test_pred <- knn(train = cancer_train, test = cancer_test,
+cl = cancer_train_labels, k=18)
+
+```
+
+
+```{r}
+
+CrossTable(x= cancer_test_labels,y=cancer_test_pred,prop.chisq = FALSE)
+
+```
+
+
+```{r}
+
+library(e1071)
+
+#cancer_test_labels
+#cancer_train
+
+
+# Error: `data` and `reference` should be factors with the same levels.
+
+cm18 <- confusionMatrix(
+  cancer_test_pred, 
+  cancer_train_labels, 
+  positive = "2", 
+  dnn = c("Prediction", "Actual"), 
+  mode = "sens_spec"
+  )
+
+
+```
+
+
+
+
+
+```{r}
+
+#Error in prediction
+error <- mean(cancer_test_pred!=cancer$diagnosis)
+
+
+```
+
+
