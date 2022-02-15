@@ -50,6 +50,12 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
   scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
 ```
 
+Graphing radius by compactness
+```{r}
+
+```
+
+
 ```{r}
 set.seed(1891)
 library(readr)
