@@ -19,6 +19,11 @@ library(NbClust)
 library(randomForest)
 library(ggplot2)
 library(class)
+#install.packages("ggcorrplot")
+library(ggcorrplot)
+library(corrplot)
+library(corrr)
+library(readr)
 ```
 
 Reading in the Data
@@ -33,11 +38,42 @@ cancer$diagnosis[cancer$diagnosis == "M"] <- 1
 cancer$diagnosis[cancer$diagnosis == "B"] <- 0
 
 #Remove the last "x" column
-cancerdf = cancerdf[, -c(33)]
+cancer = cancer[, -c(33)]
 str(cancer)
 #Convert the diagnosis variable to a factor
 #complete.cases(cancer)
 cancer$diagnosis = as.factor(cancer$diagnosis)
+```
+
+Overall Correlation Matrix
+```{r}
+cancer_cor2 = cancer[, -c(1)]
+cancer_cor2$diagnosis <- as.numeric(cancer_cor2$diagnosis) 
+cancer_cor2 = round(cor(cancer_cor2),1)
+  
+#head(cancer_cor2[, 1:4])
+p.mat <- cor_pmat(cancer_cor2)
+head(p.mat[, 1:4])
+
+ggcorrplot(cancer_cor2)
+```
+
+Setting up Correlation Matrix 2
+```{r}
+set.seed(1891)
+cancer_cor <- cancer
+cancer_cor$diagnosis <- as.numeric(cancer_cor$diagnosis) 
+#View(cancer_cor)
+```
+
+```{r}
+table(cancer$diagnosis)
+summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
+```
+
+```{r}
+cor1 <- cor(x = cancer_cor$diagnosis, y = cancer_cor[2:19], use="complete.obs")
+corrplot(cor1, tl.srt = 25)
 ```
 
 Graphing radius by diagnosis
@@ -47,37 +83,14 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
   geom_point(size=0.1) +
   labs(title = "Diagnosis by Radius", x="Diagnosis", y="Radius",) +
   scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
-  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
 ```
 
 Graphing radius by compactness
 ```{r}
 
 ```
-
-
-```{r}
-set.seed(1891)
-library(readr)
-cancer_cor <- cancer
-cancer_cor$diagnosis <- as.numeric(cancer_cor$diagnosis) 
-View(cancer_cor)
-```
-
-
-```{r}
-table(cancer$diagnosis)
-summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
-```
-
-```{r}
-library(corrplot)
-library(corrr)
-library(ggplot2)
-cor1 <- cor(x = cancer_cor$diagnosis, y = cancer_cor[2:19], use="complete.obs")
-corrplot(cor1, tl.srt = 25)
-```
-
 
 
 ```{r}
@@ -177,5 +190,4 @@ error <- mean(cancer_test_pred!=cancer$diagnosis)
 
 
 ```
-
 
