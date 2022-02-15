@@ -24,6 +24,7 @@ library(ggcorrplot)
 library(corrplot)
 library(corrr)
 library(readr)
+library(gridExtra)
 ```
 
 Reading in the Data
@@ -87,11 +88,35 @@ ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
   geom_jitter()
 ```
 
-Graphing radius by compactness
 ```{r}
+#Histogram
+p1 = ggplot(cancer) + 
+  geom_histogram(aes(x = radius_mean), bins = 25, color = "purple", fill = "pink") + 
+  theme_minimal() + 
+  labs(title = "Radius Histogram", x="Radius", y="Count",)
+
+#Kernel Density Estimate
+p2 = ggplot(cancer) +
+  geom_density(aes(x = radius_mean), color = "blue") +
+  theme_minimal() +
+  labs(title = "Radius Kernel Density Estimate", x="Radius", y="Density ",)
+
+#Boxplot
+p3 = ggplot(cancer, aes(x = radius_mean)) +
+  geom_boxplot(color="blue", fill="pink", alpha=0.4) +
+  theme_bw() +
+  labs(title = "Radius Boxplot", x="Radius", y="Count")
+
+#Set of boxplots showing the distribution of “radius” by sex crossed with occupational status (“occ”). 
+p4 = ggplot(cancer, aes(x = radius_mean, y = texture_mean, fill = diagnosis)) + 
+  geom_boxplot() + 
+  theme_bw() +
+  labs(title = "Radius by Texture Boxplot ", x="Radius", y="Texture")+
+  coord_flip()
+
+grid.arrange(p1,p2,p3,p4, ncol=2)
 
 ```
-
 
 ```{r}
 radius_d <- density(cancer$radius_mean)
