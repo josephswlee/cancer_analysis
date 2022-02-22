@@ -1,0 +1,591 @@
+---
+title: "Cancer Analysis"
+author: "Joseph Lee (sl5nj), Umar Abushaban (uba6z), William Cull (wjc5rt)"
+date: "2/1/2022"
+output: 
+  html_document:
+    toc: True 
+    theme: sandstone
+    toc_float: True
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+
+```{r, include=FALSE}
+#Load libraries
+#library(e1071)
+library(tidyverse)
+library(plotly)
+library(htmltools)
+library(devtools)
+library(caret)
+library(NbClust)
+library(randomForest)
+library(rio)
+library(plyr)
+library(rpart)
+library(pROC)
+library(rpart.plot)
+library(rattle)
+library(mlbench)
+library(MLmetrics)
+library(ROCR)
+library(mltools)
+library(data.table)
+library(ggplot2)
+library(class)
+```
+
+
+## Summary
+According to the [Cleveland Clinic](https://my.clevelandclinic.org/health/articles/6270-benign-breast-disease), Up to half of all women will experience fibrocystic changes that cause noncancerous breast lumps at some point in their lives. Unfortunately, a minority of these common cases spread to distant sites via the bloodstream or the lymphatic system, and thus there is an obvious impetus for accurate and reliable predictive screening. 
+
+**While this dataset has had many applications, Our project specifically aims to investigate whether supervised machine learning methods are capable of predicting and differentiating benign & malignant breast cancer tumors with sufficiently strong recall in the context of a test class split that is emblematic of the true population proportion at scale.**  
+
+We employed clustering and Random Forest methods on a dataset obtained from the UCI Machine Learning Repository. This dataset was created by Dr. William H. Wolberg from the University of Wisconsin, which has binary classification and includes features computed from digitized images of tumor biopsies. 
+
+After exploratory analysis, we analyzed each method and formed an initial hypothesis that we could optimize tuning parameters to minimize false negatives and achieve a statistically significant confidence interval in prediction.
+
+
+## EDA 
+
+### Reading in the Data
+
+Data is imported and initialized
+
+```{r, message=FALSE, echo=FALSE}
+#cancer = read.csv("./cancer.csv")
+cancer <- read.csv("/cloud/project/cancer.csv")
+```
+
+### Cleaning up the data
+
+diagnosis variables are converted from their string format into numerics and then factorized, while excess columns are removed.
+
+```{r, results='hide'}
+#convert variable names
+cancer$diagnosis[cancer$diagnosis == "M"] <- 1
+cancer$diagnosis[cancer$diagnosis == "B"] <- 0
+#Remove the last "x" column
+cancer = cancer[, -c(33)]
+str(cancer)
+#Convert the diagnosis variable to a factor
+#complete.cases(cancer)
+cancer$id = as.factor(cancer$id)
+cancer$diagnosis = as.factor(cancer$diagnosis)
+#View(cancer)
+table(cancer$diagnosis)
+#remove id for test
+cancer = cancer[, -c(1)]
+```
+
+### Setting to numeric
+```{r, messgae = FALSE, echo=FALSE}
+set.seed(1891)
+library(readr)
+cancer_cor <- cancer
+cancer_cor$diagnosis <- as.numeric(cancer_cor$diagnosis) 
+
+```
+
+### Exploring correlations
+```{r, message = FALSE, echo=FALSE}
+
+library(corrplot)
+library(corrr)
+library(ggplot2)
+cor1 <- cor(x = cancer_cor$diagnosis, y = cancer_cor[2:19], use="complete.obs")
+corrplot(cor1)
+```
+
+### Graphing radius by diagnosis
+```{r, fig.show='hold',out.width="50%", echo=FALSE}
+radiusmeanplot <- ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Radius", x="Diagnosis", y="Radius",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
+
+plot(radiusmeanplot)
+
+smoothnessmeanplot <- ggplot(cancer, aes(x=diagnosis, y=smoothness_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Smoothness", x="Diagnosis", y="Smoothness",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
+
+plot(smoothnessmeanplot)
+
+compactnessmeanplot <-ggplot(cancer, aes(x=diagnosis, y=compactness_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Compactness", x="Diagnosis", y="Compactness",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign"))
+
+plot(compactnessmeanplot)
+
+```
+
+As an initial observation, it appears that there is significant overlap in the mean values of tumors across the classes. These are impactful variables in prediction, which indicates that classification may be difficult. To further investigate this, we look to the averages of key variables  
+
+
+### Averages
+```{r, echo=FALSE}
+table(cancer$diagnosis)
+summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
+```
+
+We observe seemingly high density around the mean and thus investigate the distribution of these key variables below:
+
+
+### Analyzing key feature distributions
+```{r, echo=FALSE, figures-side,fig.show='hold',out.width="50%"}
+radius_d <- density(cancer$radius_mean)
+plot(radius_d)
+smoothness_d <- density(cancer$smoothness_mean)
+plot(smoothness_d)
+compactness_d <- density(cancer$compactness_mean)
+plot(compactness_d)
+```
+
+We observe skews with key impact features here. Attributes with a large value range have a higher impact on distance than attributes with a small value range, which nullifies clustering efficacy. In order to solve this, we map each attribute value proportionally to the same value interval, so as to balance the influence of each attribute on the distance without comprimising each feature's distribution profile.
+
+### Feature normalization
+```{r, message=FALSE, echo=FALSE}
+# normalization must occur given different scales, kNN is distance based, and metrics are not gaussian in dist.
+normalize <- function(x) {
+  return ((x- min(x))/ (max(x)- min(x)))
+}
+cancer_norm <- as.data.frame(lapply(cancer_cor[2:19], normalize))
+summary(cancer_norm$radius_mean)
+# looks normalized
+```
+
+## Clustering Training & Testing
+```{r}
+# next comes training formation
+cancer_train <- cancer_norm[1:469, ] 
+cancer_test <- cancer_norm[470:569, ]  
+cancer_train_labels <- cancer[1:469, 1]  
+cancer_test_labels <- cancer[470:569, 1] 
+```
+
+### ChooseK 
+```{r, echo=FALSE, message=FALSE}
+#chooseK = function(k, train_set, val_set, train_class, val_class){
+  
+  # Build knn with k neighbors considered.
+ # set.seed(1)
+  #class_knn = knn(train = train_set,    #<- training set cases
+   #               test = val_set,       #<- test set cases
+    #              cl = train_class,     #<- category for classification
+     #             k = k,                #<- number of neighbors considered
+      #            use.all = TRUE)       #<- control ties between class assignments#   If true, all distances equal to the kth largest are included
+#  conf_mat = table(class_knn, val_class)
+  
+  # Calculate the accuracy#could change this to Sensitivity 
+ # accu = sum(conf_mat[row(conf_mat) == col(conf_mat)]) / sum(conf_mat)                         
+  #cbind(k = k, accuracy = accu)
+#}
+#knn_diff_k_cancer <- sapply(seq(1,21, by = 2), function(x) chooseK(k = 18,
+#train_set = cancer_train,
+#val_set = cancer_test,
+ #train_class = cancer_train$`diagnosis`,
+ #val_class = cancer_test$`diagnosis`))
+#knn_diff_k_cancer
+```
+ From this exercise, we derive the optimal K value, 18
+
+
+### KNN Model
+```{r}
+cancer_test_pred <- knn(train = cancer_train, test = cancer_test,
+cl = cancer_train_labels, k=18)
+```
+
+### Confusion Matrix
+```{r, echo=FALSE}
+#library(e1071)
+#cancer_test_labels
+#cancer_train
+#cm18 <- confusionMatrix(
+#  cancer_test_pred, 
+#  cancer_train$`diagnosis`, 
+#  positive = "1", 
+#  dnn = c("Prediction", "Actual"), 
+#  mode = "sens_spec"
+ # )
+#cm18
+```
+
+One Limitation to KNN is that its prediction becomes significantly slow as the size of that data in use grows. Further, we see here that x% of cases that are actually malignant are correctly classified
+
+### Error Testing
+```{r, echo=FALSE}
+#Error in prediction
+#error <- mean(cancer_test_pred!=cancer$diagnosis)
+```
+
+
+## Random Forests
+
+For context, Random forest creates random uncorrelated decision trees that considers randomness and bagging to deliver a classification prediction based in the aggregate outcomes of individual binary splits and terminal nodes. There is an exhaustive search over all variables and possible split points to find the split point that best reduces the node impurity. Then, the ideal split is set and this process repeats in the left and right leaves in turn, recursively, until some stopping rules are met.
+
+
+First, we will run a random forest and assess its base merits and shortfalls. After some tuning, we expect to achieve small false negatives with a more realistic split in diagnosis status (e.g. 12% of women are expected to develop malignant breast cancer, not 38%). We discussed taking a subset of the test set that intentionally oversamples the minority class. We do this to find the minimum proportion needed for a training set that allows for a defensible false negative rate in eventual prediction.   First, we must understand the quality of the model with a somewhat balanced set:
+
+
+```{r, include=FALSE}
+#setwd("/Users/sangwoolee/Dev/DS4002/4002_handsOn/project1/cancer_analysis")
+```
+
+### Row Partition
+```{r, echo=FALSE}
+sample_rows = 1:nrow(cancer)
+#sample_rows
+set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
+test_rows = sample(sample_rows,
+                   dim(cancer)[1]*.10, #start with 10% of our dataset, could do 20%
+                   # but random forest does require more training data because of the 
+                   # sampling so 90% might be a better approach with this small of a dataset
+                   replace = FALSE)# We don't want duplicate samples
+# Partition the data between training and test sets using the row numbers the
+# sample() function selected.
+cancer_train = cancer[-test_rows,]
+cancer_test = cancer[test_rows,]
+dim(cancer)
+```
+
+```{r, echo=FALSE}
+###### for tune
+set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
+test_rows = sample(sample_rows,
+                   dim(cancer_test)[1]*.50, #start with 10% of our dataset, could do 20%
+                   # but random forest does require more training data because of the 
+                   # sampling so 90% might be a better approach with this small of a dataset
+                   replace = FALSE)# We don't want duplicate samples
+tune = cancer_test[-test_rows,]
+test = cancer_test[test_rows,]
+set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
+test_rows = sample(sample_rows,
+                   dim(tune)[1]*.50, #start with 10% of our dataset, could do 20%
+                   # but random forest does require more training data because of the 
+                   # sampling so 90% might be a better approach with this small of a dataset
+                   replace = FALSE)# We don't want duplicate samples
+x_tune = tune[-test_rows,]
+y_tune = tune[test_rows,]
+```
+
+### Mytry Tuning 
+
+A base model randomly selects mtry variables from the set of predictors available. This causes each split to have a different random set of variables selected within. Here, we aim to improve model accuracy by determining the ideal number of features randomly sampled as candidates at each split with the random forest. The square root of total features within the set serves a rough rule of thumb for this value. In this case, the value came out to:
+
+```{r, echo=FALSE}
+mytry_tune <- function(x){
+  xx <- dim(x)[2]-1
+  sqrt(xx)
+}
+mytry_tune(cancer) #5.477226
+
+
+# use actual mytry tuner rather than square root? This rule is used for rough estimations...
+```
+
+
+### Random Forest Model #1
+```{r, echo=TRUE, results='hide'}
+set.seed(2023)  
+cancer_RF = randomForest((diagnosis)~.,          #<- Formula: response variable ~ predictors.
+                            #   The period means 'use all other variables in the data'.
+                            cancer_train,     #<- A data frame with the variables to be used.
+                            #y = NULL,           #<- A response vector. This is unnecessary because we're specifying a response formula.
+                            #subset = NULL,      #<- This is unnecessary because we're using all the rows in the training data set.
+                            #xtest = NULL,       #<- This is already defined in the formula by the ".".
+                            #ytest = NULL,       #<- This is already defined in the formula by "PREGNANT".
+                            ntree = 500,        #<- Number of trees to grow. This should not be set to too small a number, to ensure that every input row gets classified at least a few times.
+                            mtry = 5,            #<- Number of variables randomly sampled as candidates at each split. Default number for classification is sqrt(# of variables). Default number for regression is (# of variables / 3).
+                            replace = TRUE,      #<- Should sampled data points be replaced.
+                            #classwt = NULL,     #<- Priors of the classes. Use this if you want to specify what proportion of the data SHOULD be in each class. This is relevant if your sample data is not completely representative of the actual population 
+                            #strata = NULL,      #<- Not necessary for our purpose here.
+                            sampsize = 100,      #<- Size of sample to draw each time.
+                            nodesize = 5,        #<- Minimum numbers of data points in terminal nodes.
+                            #maxnodes = NULL,    #<- Limits the number of maximum splits. 
+                            importance = TRUE,   #<- Should importance of predictors be assessed?
+                            #localImp = FALSE,   #<- Should casewise importance measure be computed? (Setting this to TRUE will override importance.)
+                            proximity = FALSE,    #<- Should a proximity measure between rows be calculated?
+                            norm.votes = TRUE,   #<- If TRUE (default), the final result of votes are expressed as fractions. If FALSE, raw vote counts are returned (useful for combining results from different runs).
+                            do.trace = TRUE,     #<- If set to TRUE, give a more verbose output as randomForest is run.
+                            keep.forest = TRUE,  #<- If set to FALSE, the forest will not be retained in the output object. If xtest is given, defaults to FALSE.
+                            keep.inbag = TRUE)   #<- Should an n by ntree matrix be returned that keeps track of which samples are in-bag in which trees? 
+```
+
+
+```{r, echo=FALSE,results='hide'}
+cancer_RF
+cancer_RF$call
+```
+
+### Confusion Matrix (#1)
+```{r, echo= FALSE}
+cancer_RF$confusion
+```
+
+```{r, echo=FALSE}
+cancer_RF_acc = sum(cancer_RF$confusion[row(cancer_RF$confusion) == 
+                                                col(cancer_RF$confusion)]) / 
+  sum(cancer_RF$confusion)
+cancer_RF_acc
+```
+
+```{r, echo = FALSE, results ='hide'}
+# The accuracy of this model is 0.8404
+#### Random forest output ####
+#View(as.data.frame(cancer_RF$votes))
+
+```
+
+### inbag argument
+```{r, echo=FALSE, results='hide'}
+
+# The "inbag" argument shows you which data point is included in which trees.
+str(as.data.frame(cancer_RF$inbag))
+
+#View(as.data.frame(cancer_RF$inbag))
+inbag <- as.data.frame(cancer_RF$inbag)
+sum(inbag[,500])
+```
+
+Interpretation
+
+
+```{r, echo=FALSE, results='hide'}
+dim(cancer_RF$inbag)
+```
+
+Interpretation
+
+
+### General Error Rate
+```{r, echo=FALSE}
+err.rate <- as.data.frame(cancer_RF$err.rate)
+err.rate[500,]
+```
+
+### Errors evaluation
+```{r, echo=FALSE}
+
+
+cancer_RF_error = data.frame(1:nrow(cancer_RF$err.rate),
+                                cancer_RF$err.rate)
+
+colnames(cancer_RF_error) = c("Number of Trees", "Out of the Box",
+                                 "Benign", "Malignant")
+# Add another variable that measures the difference between the error rates, in
+# some situations we would want to minimize this but need to use caution because
+# it could be that the differences are small but that both errors are really high,
+# just another point to track. 
+cancer_RF_error$Diff <- cancer_RF_error$`Benign`-cancer_RF_error$`Malignant`
+#View(cancer_RF_error)
+#rm(fig)
+fig <- plot_ly(x=cancer_RF_error$`Number of Trees`, y=cancer_RF_error$Diff,name="Diff", type = 'scatter', mode = 'lines')
+fig <- fig %>% add_trace(y=cancer_RF_error$`Out of the Box`, name="OOB_Er")
+fig <- fig %>% add_trace(y=cancer_RF_error$`Malignant`, name="Malignant")
+fig <- fig %>% add_trace(y=cancer_RF_error$`Benign`, name="Benign")
+fig
+```
+
+### Analysis
+
+
+
+### Random Forest #2
+
+Given the results, we decided to implement some improvements to our model. We started by modifying the ntree value, raising it from 500 to 1000. We want enough trees to stabilize the error but not so many that we over correlate the ensemble and overfit or make run times too long. Next, we increased the size of the sample for each draw from 100 to 200.
+
+(maybe delete, discuss)
+Further variable interactions stabilize at a slower rate than error, and given our large number of independent variables, we decided to take a make the new ntree value an odd number so ties can be broken.
+
+### Random Forest #2 Model
+```{r, results='hide'}
+set.seed(2023)  
+cancer_RF2 = randomForest((diagnosis)~.,          #<- Formula: response variable ~ predictors.
+                            #   The period means 'use all other variables in the data'.
+                            cancer_train,     #<- A data frame with the variables to be used.
+                            #y = NULL,           #<- A response vector. This is unnecessary because we're specifying a response formula.
+                            #subset = NULL,      #<- This is unnecessary because we're using all the rows in the training data set.
+                            #xtest = NULL,       #<- This is already defined in the formula by the ".".
+                            #ytest = NULL,       #<- This is already defined in the formula by "PREGNANT".
+                            ntree = 1000,        #<- Number of trees to grow. This should not be set to too small a number, to ensure that every input row gets classified at least a few times.
+                            mtry = 5,            #<- Number of variables randomly sampled as candidates at each split. Default number for classification is sqrt(# of variables). Default number for regression is (# of variables / 3).
+                            replace = TRUE,      #<- Should sampled data points be replaced.
+                            #classwt = NULL,     #<- Priors of the classes. Use this if you want to specify what proportion of the data SHOULD be in each class. This is relevant if your sample data is not completely representative of the actual population 
+                            #strata = NULL,      #<- Not necessary for our purpose here.
+                            sampsize = 200,      #<- Size of sample to draw each time.
+                            nodesize = 5,        #<- Minimum numbers of data points in terminal nodes.
+                            #maxnodes = NULL,    #<- Limits the number of maximum splits. 
+                            importance = TRUE,   #<- Should importance of predictors be assessed?
+                            #localImp = FALSE,   #<- Should casewise importance measure be computed? (Setting this to TRUE will override importance.)
+                            proximity = FALSE,    #<- Should a proximity measure between rows be calculated?
+                            norm.votes = TRUE,   #<- If TRUE (default), the final result of votes are expressed as fractions. If FALSE, raw vote counts are returned (useful for combining results from different runs).
+                            do.trace = TRUE,     #<- If set to TRUE, give a more verbose output as randomForest is run.
+                            keep.forest = TRUE,  #<- If set to FALSE, the forest will not be retained in the output object. If xtest is given, defaults to FALSE.
+                            keep.inbag = TRUE)   #<- Should an n by ntree matrix be returned that keeps track of which samples are in-bag in which trees? 
+```
+
+
+```{r, echo=FALSE}
+cancer_RF2
+cancer_RF2$call
+cancer_RF2$confusion
+```
+
+We are seeing almost double the amount of false negatives relative to false positives. This is the opposite of the desired outcome.
+
+### Confusion Matrix #2
+```{r, echo=FALSE}
+cancer_RF_acc2 = sum(cancer_RF2$confusion[row(cancer_RF2$confusion) == 
+                                                col(cancer_RF2$confusion)]) / 
+  sum(cancer_RF2$confusion)
+cancer_RF_acc2
+```
+
+```{r, echo=FALSE, results='hide'}
+# The accuracy of this model is 0.8404
+#### Random forest output ####
+#View(as.data.frame(cancer_RF$votes))
+# The "inbag" argument shows you which data point is included in which trees.
+str(as.data.frame(cancer_RF2$inbag))
+```
+
+### In bag
+```{r, echo=FALSE, results='hide'}
+#View(as.data.frame(cancer_RF2$inbag))
+inbag <- as.data.frame(cancer_RF2$inbag)
+sum(inbag[,500])
+```
+
+```{r, echo=FALSE, results='hide'}
+dim(cancer_RF2$inbag)
+```
+
+### General Error Rate
+```{r, echo=FALSE}
+err.rate2 <- as.data.frame(cancer_RF2$err.rate)
+err.rate2[1000,]
+```
+
+
+### Errors Evaluation
+```{r, echo=FALSE}
+#### Visualize random forest results ####
+# Let's visualize the results of the random forest.
+# Let's start by looking at how the error rate changes as we add more trees.
+cancer_RF_error2 = data.frame(1:nrow(cancer_RF2$err.rate),
+                                cancer_RF2$err.rate)
+#View(cancer_RF_error2)
+colnames(cancer_RF_error2) = c("Number of Trees", "Out of the Box",
+                                 "Benign", "Malignant")
+# Add another variable that measures the difference between the error rates, in
+# some situations we would want to minimize this but need to use caution because
+# it could be that the differences are small but that both errors are really high,
+# just another point to track. 
+cancer_RF_error2$Diff <- cancer_RF_error2$`Benign`-cancer_RF_error2$`Malignant`
+#View(cancer_RF_error)
+#rm(fig)
+fig2 <- plot_ly(x=cancer_RF_error2$`Number of Trees`, y=cancer_RF_error2$Diff,name="Diff", type = 'scatter', mode = 'lines')
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Out of the Box`, name="OOB_Er")
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Malignant`, name="Malignant")
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Benign`, name="Benign")
+fig2
+```
+
+
+Decision trees tend to have high variance when they utilize different training and test sets of the same data, since they tend to overfit on training data. This leads to poor performance on unseen data. Further, classifiers can be negatively impacted by variables that are highly correlated or offer little variance explanation. Given our large ntree value, all variables might be used at some point when searching for split points whilst growing the tree without tuning. From this and other factors related to sampling, we explored making dimensionalty reductions. To conduct this feature filtering, we conducted the following exercises: 
+
+# Dimensonality Reduction & Tuning
+```{r}
+
+
+```
+
+
+F1 illustrates the harmonic mean between precision and recall, and it reaches its optimum 1 only if precision and recall are both at 100%. This serves as a more holistic analysis of our model than accuracy values, especially considering the incidence rate of benign cases in the dataset. Further, the purpose of our project involves mitigating false negatives, and this score in its base forms weights classification errors equally, which is not aligned with real preferences. So, in addition to our F1 score, we also implement an F Beta Score, a value with custom weighting of precision and recall. There is additional weight on recall given the severity of false negatives in classification. This is achieved by moving up the beta value to 2, which is the commonly used beta value when recall is preferred over precision.
+
+### Analysis beyond Accuracy
+```{r, echo=FALSE}
+
+pred1 <- predict(cancer_RF,type = "prob")
+
+#Traditional F1 Score
+F1 <- F1_Score(cancer$diagnosis,pred1[1:569])
+
+
+# F Beta Score with custom weighting of precision and recall: there is additional weight on recall given the severity of false negatives in classification. This is achieved by moving up the beta value to 2, the common beta value when recall is preferred over precision
+FBeta <- FBeta_Score(cancer$diagnosis,pred1[1:569], positive = 1, beta = 2)
+
+
+
+# variable importance plot 
+variableimportance <- varImpPlot(cancer_RF, sort = TRUE,main = "Variable Importance scale", type = 2)
+
+
+
+```
+
+The mean decrease in Gini coefficient is a measure of how each variable contributes to the homogeneity of the nodes and leaves in the resulting random forest. The higher the value of mean decrease Gini score, the higher the importance of the variable in the model. It basically represents the mean decrease in node impurity (and not the mean decrease in accuracy). 
+
+### Model II with new test set (undersampled minority)
+```{r}
+
+
+```
+
+
+### Further Analysis, II
+```{r, echo=FALSE}
+
+#FBeta_Score(y_pred = pred, y_true = mtcars$vs, positive = "1", beta = 2)
+
+# log loss 
+# ROC 
+#FBeta_Score()
+# https://towardsdatascience.com/the-proper-way-to-use-machine-learning-metrics-4803247a2578
+
+
+# Kappa Value 
+
+```
+
+
+```{r, echo=FALSE}
+
+cancer_features <- c("radius", "texture", "perimeter", "area", "smoothness", "compactness", "concavity", "concave_points", "symmetry", "fractal_dimension")
+
+
+
+
+```
+
+
+### Final Analysis 
+
+
+
+
+
+
+## Conclusion 
+
+
+
+
