@@ -1,0 +1,824 @@
+---
+title: "Cancer Analysis"
+author: "Joseph Lee (sl5nj), Umar Abushaban (uba6z), William Cull (wjc5rt)"
+date: "3/1/2022"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+    theme: sandstone
+    toc_float: yes
+    code_folding: hide
+  pdf_document:
+    
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+h1.title {
+  font-size: 30px;
+}
+h1 {
+  font-size: 26px;
+}
+h2 {
+  font-size: 22px;
+}
+h3 { 
+  font-size: 18px;
+}
+
+</style>
+
+![](https://ichef.bbci.co.uk/news/976/cpsprodpb/1249C/production/_110580947_f0192831-cancer_cell_and_t_cell_illustration-spl.jpg){width=75%}
+
+# Summary
+According to the [Cleveland Clinic](https://my.clevelandclinic.org/health/articles/6270-benign-breast-disease), Up to half of all women will experience fibrocystic changes that cause noncancerous breast lumps at some point in their lives. Unfortunately, a minority of these common cases spread to distant sites via the bloodstream or the lymphatic system, and thus there is an obvious impetus for accurate and reliable predictive screening. 
+
+**While this dataset has had many applications, Our project specifically aims to investigate whether supervised machine learning methods are capable of predicting and differentiating benign & malignant breast cancer tumors with sufficiently strong recall in the context of a test class split that is emblematic of the true population proportion at scale.**  
+
+We employed clustering and Random Forest methods on a dataset obtained from the UCI Machine Learning Repository. This dataset was created by Dr. William H. Wolberg from the University of Wisconsin, which has binary classification and includes features computed from digitized images of tumor biopsies. 
+
+After exploratory analysis, we analyzed each method and formed an initial hypothesis that we could optimize tuning parameters to minimize false negatives and achieve a statistically significant confidence interval in prediction.
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+## Data Validation {.tabset}
+
+Load libraries 
+```{r, include=FALSE}
+#library(e1071)
+library(tidyverse)
+library(plotly)
+library(htmltools)
+library(devtools)
+library(caret)
+library(NbClust)
+library(randomForest)
+library(rio)
+library(plyr)
+library(rpart)
+library(pROC)
+library(rpart.plot)
+library(rattle)
+library(mlbench)
+library(MLmetrics)
+library(ROCR)
+library(mltools)
+library(data.table)
+library(ggplot2)
+library(class)
+library(ggcorrplot)
+library(corrplot)
+```
+
+Read in the data.
+```{r}
+cancer = read.csv("./cancer.csv")
+cancer_default = read.csv("./cancer.csv")
+#cancer <- read.csv("/cloud/project/cancer.csv")
+```
+
+### First 6 Rows
+```{r}
+head(cancer)
+```
+### Kable
+```{r}
+#install.packages("kableExtra")
+require("kableExtra")
+
+kable(str(cancer))
+```
+### Data Types and Ranges
+
+The "Diagnosis" categorical variable should be a factor instead of a character. We will have to convert that to a factor. There also seems to be an extra column at the end that is just full of NAs. We will have to delete that column. The ranges of the numerical data also seem to be in order.
+
+```{r echo=T}
+#cancer$diagnosis = as.factor(cancer$diagnosis)
+cancer = cancer[, -c(33)]
+cancer = cancer[, -c(1)]
+
+cancer$diagnosis[cancer$diagnosis == "M"] <- 1
+cancer$diagnosis[cancer$diagnosis == "B"] <- 0
+
+cancer$diagnosis = as.factor(cancer$diagnosis)
+```
+
+### Duplicates / Missing Values / Nulls
+
+```{r echo=TRUE}
+#unique(cancer$radius_mean) #No radiuses were duplicated
+dim(cancer[duplicated(cancer$id),])[1] #No ID numbers were duplicated
+```
+
+No missing data other than the last column full of NAs that we already deleted
+```{r echo=TRUE}
+cancer<-na.omit(cancer)
+```
+
+No nulls present in the data after removing the final column
+
+Final cleaned up dataset:
+```{r}
+str(cancer)
+```
+
+## Averages
+```{r, echo=FALSE}
+table(cancer$diagnosis)
+summary(cancer[c("radius_mean","smoothness_mean","compactness_mean")])
+```
+
+We observe seemingly high density around the mean and thus investigate the distribution of these key variables below:
+
+
+## Analyzing key feature distributions
+```{r, echo=FALSE, figures-side,fig.show='hold',out.width="50%"}
+radius_d <- density(cancer$radius_mean)
+plot(radius_d)
+smoothness_d <- density(cancer$smoothness_mean)
+plot(smoothness_d)
+compactness_d <- density(cancer$compactness_mean)
+plot(compactness_d)
+```
+
+We observe skews with key impact features here. Attributes with a large value range have a higher impact on distance than attributes with a small value range, which nullifies clustering efficacy. In order to solve this, we map each attribute value proportionally to the same value interval, so as to balance the influence of each attribute on the distance without compromising each feature's distribution profile.
+    
+# Plots/Graphs {.tabset}
+
+## Correlation Matrix
+
+First, we'll be creating a correlation matrix to get a sense of which variables are the most correlated with others. We're particularly interested in size based variables such as radius_mean, perimeter, and area.
+
+```{r, fig.width=9, fig.height=9}
+cancer_cor = cancer
+cancer_cor$diagnosis <- as.numeric(cancer_cor$diagnosis) #converting factor to numeric
+cancer_cor = round(cor(cancer_cor),1)
+  
+p.mat <- cor_pmat(cancer_cor)
+head(p.mat[, 1:4])
+ggcorrplot(cancer_cor)
+```
+From looking at the correlation matrix, we can see a few interesting variables to keep in mind along the "Diagnosis" row. It seems that area, mean, and perimeter are in fact some of the most predictive variables of the diagnosis. However, another variable seems to also be somewhat correlated with the diagnosis: concave_points. Using this information, we would like to visualize how each of these variables are related to diagnosis using another plot.
+
+```{r}
+cancer_cor <- cancer
+cancer_cor$diagnosis <- as.numeric(cancer_cor$diagnosis) 
+cor1 <- cor(x = cancer_cor$diagnosis, y = cancer_cor[2:19], use="complete.obs")
+corrplot(cor1)
+```
+
+## Diagnosis Correlation
+
+We're going to plot each of those four variables we found earlier against diagnosis to have a better visual understanding of what is most predictive of diagnosis. We're also going to include four plots with lesser correlated variables to provide some contrast.
+
+```{r, fig.width=13, fig.height=13}
+library(gridExtra)
+p1 = ggplot(cancer, aes(x=diagnosis, y=radius_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Radius", x="Diagnosis", y="Radius",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p2 = ggplot(cancer, aes(x=diagnosis, y=area_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Area", x="Diagnosis", y="Area",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p3 = ggplot(cancer, aes(x=diagnosis, y=perimeter_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Perimeter", x="Diagnosis", y="Perimeter",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p4 = ggplot(cancer, aes(x=diagnosis, y=concave.points_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Concave Points", x="Diagnosis", y="Concave Points",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p5 = ggplot(cancer, aes(x=diagnosis, y=smoothness_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Smoothness", x="Diagnosis", y="Smoothness",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p6 = ggplot(cancer, aes(x=diagnosis, y=texture_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Texture", x="Diagnosis", y="Texture",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p7 = ggplot(cancer, aes(x=diagnosis, y=compactness_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Compactness", x="Diagnosis", y="Compactness",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+p8 = ggplot(cancer, aes(x=diagnosis, y=fractal_dimension_mean,color = diagnosis)) +
+  geom_point(alpha = 1/20) +
+  geom_point(size=0.1) +
+  labs(title = "Diagnosis by Fractal Dimension", x="Diagnosis", y="Fractal Dimension",) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("green", "red")) +
+  scale_x_discrete(labels=c("1" = "malignant", "0" = "benign")) + 
+  geom_jitter()
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8, ncol=2)
+```
+
+We can definitely see from the first four plots (Radius, Area, Perimeter, Concave Points) that they are much better identifiers of cancerous tumors than the other variables.
+
+Most surprisingly, based on the correlation matrix and the plots, the single most predictive variable of cancerous breast tumors was not the radius, perimeter, or the mean. It seems to be the concave points variable.
+
+## Concave Points/Radius Regression
+
+A regression smoother (loess) ggplot can show how concave points could really compliment the radius in the context of models that we might want to build.
+
+```{r}
+ggplot(cancer, aes(x=radius_mean, y=concave.points_mean, col=diagnosis)) + 
+  geom_point(alpha=0.75) + 
+  labs(
+    x='Radius', 
+    y='Concave Points',
+    title='Radius/Concave Points Regression Smoother (loess)'
+  ) +
+  geom_smooth(
+    method='loess', 
+    formula=y~x, 
+    se=FALSE
+  ) +
+  theme(
+    plot.title=element_text(hjust = 0.5)
+  ) +
+  scale_color_manual(labels = c("benign", "malignant"), values = c("cadetblue3", "brown1"))
+
+```
+
+The concave points seems to work very well with the radius. We can see that nearly all concave_point values greater than 0.07 results in a Malignant diagnosis. The positive linear relationship between concave points and radius makes this a powerful predictor variable that could help us build our models.
+
+# K-Means Clustering {.tabset}
+
+Before continuing on to our Random Forest model, we're going to use k-means clustering to check if there are any groups/patterns that we might not yet be aware of. If there are any groups that aren't explicitly labeled in the data, this should be able to find it. Fir
+
+## Normalization
+```{r}
+cancer_kmeans = cancer
+
+# Normalization function
+normalize = function(x){
+  (x - min(x)) / (max(x) - min(x))
+}
+
+cancer_normalize = na.omit(cancer_kmeans)
+
+# Convert to factors
+cancer_normalize$diagnosis = as.factor(cancer_normalize$diagnosis)
+#str(cancer_normalize)
+
+# Normalize the factors
+cancer_cluster = cancer_normalize
+cancer_normalize = cancer_normalize[, -c(1)]
+#str(cancer_normalize)
+
+cancer_normalize = normalize(cancer_normalize)
+#str(cancer_normalize)
+
+```
+
+## Clustering
+
+```{r}
+# Clustering
+# Find the number of clusters using NBCluster
+
+#str(cancer_normalize)
+
+# we want to select the total number of rows, but drop salary later
+clust_data_cancer = select_if(cancer_normalize,is.numeric)
+```
+
+
+```{r}
+# dont include radius
+clust_data_cancer = clust_data_cancer[, -c(1)]
+#view(clust_data_cancer)
+
+clust_data_cancer = na.omit(clust_data_cancer)
+```
+
+
+```{r}
+set.seed(1)
+
+kmeans_obj_cancer = kmeans(clust_data_cancer, centers = 2, 
+                        algorithm = "Lloyd")
+
+kmeans_obj_cancer
+
+#Run Nbcluster
+(nbclust_obj_cancer = NbClust(data = clust_data_cancer, method = "kmeans"))
+```
+
+## Visualization
+
+Lets visualize this graph so that we can create something that is human understandable, and something that might allow us to draw conclusions. Maybe the visualization will allow us to quickly see some top candidates for who we might want to recruit.
+
+```{r}
+# Subset the 1st row from Best.nc and convert it 
+# to a data frame so ggplot2 can plot it.
+
+freq_k_cancer = nbclust_obj_cancer$Best.nc[1,]
+freq_k_cancer = data.frame(freq_k_cancer)
+
+
+# Check the maximum number of clusters suggested.
+max(freq_k_cancer)
+
+# Plot as a histogram.
+ggplot(freq_k_cancer,
+       aes(x = freq_k_cancer)) +
+  geom_bar() +
+  scale_x_continuous(breaks = seq(0, 15, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 12, by = 1)) +
+  labs(x = "Number of Clusters",
+       y = "Number of Votes",
+       title = "Cluster Analysis")
+
+#Cluster # 2 got the most votes
+```
+
+## Nbclust
+```{r}
+# Now we are going to build a simple decision tree using the clusters as a feature
+
+# reminder this is our model, using 3 clusters 
+set.seed(1980)
+kmeans_obj_cancer = kmeans(clust_data_cancer, centers = 2,
+                        algorithm = "Lloyd")
+
+# this is the output of the model. 
+kmeans_obj_cancer$cluster
+
+cancer_normalize$clusters = kmeans_obj_cancer$cluster
+
+clusters = as.factor(kmeans_obj_cancer$cluster)
+
+#View(clusters)
+
+cancer_cluster = cbind(clust_data_cancer,clusters)
+
+#View(cancer_cluster)
+```
+
+## 3D Visualization
+```{r}
+# Lets visualize this
+
+#view(cancer_cluster)
+
+radius = cancer_kmeans$radius_mean
+
+diagnosis = cancer_kmeans$diagnosis
+
+cancer_cluster = cbind(cancer_cluster, radius)
+cancer_cluster = cbind(cancer_cluster, diagnosis)
+view(cancer_cluster)
+```
+
+
+```{r}
+# We can visualize votes in 3D with the following code.
+# We're essentially creating a visualization that takes into consideration
+# each of the players points, assists, and minutes played, all on a 3d graph.
+# This allows us to get a sense of which players have a high ratio of what I
+# might describe as "efficiency rate," and it will color the dots on the 3d graph
+# by their salary. Using this, we can look for the darker colored (lower paid) players
+# who are higher up up the graph, which means that they're highly efficient and also
+# not paid very much 
+fig = plot_ly(cancer_cluster,
+               type = "scatter3d",
+               mode = "markers", 
+               symbol = ~clusters,
+               x = ~perimeter_mean,
+               y = ~concave.points_mean,
+               z = ~compactness_mean,
+               color = ~cancer_cluster$radius,
+               text = ~paste('Diagnosis:', diagnosis))
+
+fig
+```
+
+This k-means clustered 3D scatterplot does a decent job visualizing the data, and giving us an idea of how well variables like concavity and perimeter can predict variables such as radius. As the colors get brighter and the points make their way to the top, the classification is much more likely to be malignant than benign. This gives us the feeling that our models should be able to predict diagnosis pretty well.
+
+# Model Building 
+
+## Random Forest {.tabset}
+
+For context, Random forest creates random uncorrelated decision trees that considers randomness and bagging to deliver a classification prediction based in the aggregate outcomes of individual binary splits and terminal nodes. There is an exhaustive search over all variables and possible split points to find the split point that best reduces the node impurity. Then, the ideal split is set and this process repeats in the left and right leaves in turn, recursively, until some stopping rules are met.
+
+First, we will run a random forest and assess its base merits and shortfalls. After some tuning, we expect to achieve small false negatives with a more realistic split in diagnosis status (e.g. 12% of women are expected to develop malignant breast cancer, not 38%). We discussed taking a subset of the test set that intentionally oversamples the minority class. We do this to find the minimum proportion needed for a training set that allows for a defensible false negative rate in eventual prediction. First, we must understand the quality of the model with a somewhat balanced set:
+
+
+### Row Partition
+```{r, echo=T}
+sample_rows = 1:nrow(cancer)
+#sample_rows
+set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
+test_rows = sample(sample_rows,
+                   dim(cancer)[1]*.10,
+                   replace = FALSE)
+cancer_train = cancer[-test_rows,]
+cancer_test = cancer[test_rows,]
+dim(cancer)
+```
+
+```{r, echo=T}
+###### for tune
+set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
+test_rows = sample(sample_rows,
+                   dim(cancer_test)[1]*.50, 
+                   replace = FALSE)# We don't want duplicate samples
+tune = cancer_test[-test_rows,]
+test = cancer_test[test_rows,]
+set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
+test_rows = sample(sample_rows,
+                   dim(tune)[1]*.50, 
+                   replace = FALSE)# We don't want duplicate samples
+x_tune = tune[-test_rows,]
+y_tune = tune[test_rows,]
+```
+
+### Mytry Tuning 
+
+A base model randomly selects mtry variables from the set of predictors available. This causes each split to have a different random set of variables selected within. Here, we aim to improve model accuracy by determining the ideal number of features randomly sampled as candidates at each split with the random forest. The square root of total features within the set serves a rough rule of thumb for this value. In this case, the value came out to 5.477.
+
+```{r, echo=T}
+mytry_tune <- function(x){
+  xx <- dim(x)[2]-1
+  sqrt(xx)
+}
+mytry_tune(cancer) #5.477226
+
+```
+
+### Random Forest Model #1
+```{r, echo=TRUE, results='hide'}
+set.seed(2023)  
+cancer_RF = randomForest((diagnosis)~.,        
+                            cancer_train,    
+                            #y = NULL,         
+                            #subset = NULL,    
+                            #xtest = NULL,  
+                            #ytest = NULL,  
+                            ntree = 2000,        
+                            mtry = 5,           
+                            replace = TRUE,   
+                            #classwt = NULL, 
+                            #strata = NULL,    
+                            sampsize = 100,  
+                            nodesize = 5,      
+                            #maxnodes = NULL,  
+                            importance = TRUE, 
+                            #localImp = FALSE, 
+                            proximity = FALSE,   
+                            norm.votes = TRUE, 
+                            do.trace = TRUE,   
+                            keep.forest = TRUE, 
+                            keep.inbag = TRUE)   
+```
+
+
+```{r, echo=T,results='hide'}
+cancer_RF
+cancer_RF$call
+```
+
+### Confusion Matrix (#1)
+```{r, echo= T}
+cancer_RF$confusion
+```
+
+```{r}
+print(cancer_RF)
+```
+
+The Out of Bag error rate is 4.87% for this number of trees. As we tried the rough estimate of finding the mtry, we will try random search method to find better mtry value for the second model.
+
+```{r}
+cancer_predict = predict(cancer_RF,    
+                            cancer_test,      
+                            type = "response",   
+                            predict.all = TRUE, 
+                            proximity = FALSE)  
+#cancer_predict
+```
+
+```{r}
+cancer_test_pred = data.frame(cancer_test, 
+                                 Prediction = cancer_predict$aggregate)
+
+
+
+# Create the confusion matrix.
+cancer_test_matrix_RF = table(cancer_test_pred$diagnosis, 
+                            cancer_test_pred$Prediction)
+
+cancer_test_matrix_RF
+```
+
+```{r}
+# Calculate the misclassification or the error rate.
+cancer_test_error_rate_RF = sum(cancer_test_matrix_RF[row(cancer_test_matrix_RF) != 
+                                                    col(cancer_test_matrix_RF)]) / 
+  sum(cancer_test_matrix_RF)
+
+cancer_test_error_rate_RF
+```
+
+```{r}
+confusionMatrix(cancer_test_pred$Prediction,cancer_test_pred$diagnosis,positive = "1", 
+                dnn=c("Prediction", "Actual"), mode = "everything")
+```
+
+The confusion matrix shows that the accuracy is very high with 0.98, the kappa is at 0.96, and F1 is at 0.9767. As our data is imbalanced, this is a good indication that our model is working well. 
+
+```{r, echo=T}
+cancer_RF_acc = sum(cancer_RF$confusion[row(cancer_RF$confusion) == 
+                                                col(cancer_RF$confusion)]) / 
+  sum(cancer_RF$confusion)
+cancer_RF_acc
+```
+
+The accuracy of the first random forest model came out to be 95.3%.
+
+
+```{r, echo=T, results='hide'}
+
+# The "inbag" argument shows you which data point is included in which trees.
+str(as.data.frame(cancer_RF$inbag))
+
+#View(as.data.frame(cancer_RF$inbag))
+inbag <- as.data.frame(cancer_RF$inbag)
+sum(inbag[,2000])
+```
+
+```{r, echo=T, results='hide'}
+dim(cancer_RF$inbag)
+```
+
+### General Error Rate
+```{r, echo=T}
+err.rate <- as.data.frame(cancer_RF$err.rate)
+err.rate[2000,]
+```
+
+### Visualizing the Result 
+```{r, echo=T}
+
+
+cancer_RF_error = data.frame(1:nrow(cancer_RF$err.rate),
+                                cancer_RF$err.rate)
+
+colnames(cancer_RF_error) = c("Number of Trees", "Out of the Box",
+                                 "Benign", "Malignant")
+# Add another variable that measures the difference between the error rates, in
+# some situations we would want to minimize this but need to use caution because
+# it could be that the differences are small but that both errors are really high,
+# just another point to track. 
+cancer_RF_error$Diff <- cancer_RF_error$`Benign`-cancer_RF_error$`Malignant`
+#View(cancer_RF_error)
+#rm(fig)
+fig <- plot_ly(x=cancer_RF_error$`Number of Trees`, y=cancer_RF_error$Diff,name="Diff", type = 'scatter', mode = 'lines')
+fig <- fig %>% add_trace(y=cancer_RF_error$`Out of the Box`, name="OOB_Er")
+fig <- fig %>% add_trace(y=cancer_RF_error$`Malignant`, name="Malignant")
+fig <- fig %>% add_trace(y=cancer_RF_error$`Benign`, name="Benign")
+fig
+```
+
+After observing the ouput, we can see a fairly stable region after around 1500 trees, so for the second model we will set our ntree parameter to 1500.
+
+
+### Analysis and Tuning
+
+Our model is working good based on the confusion matrix. However, we want to tune our model with better mtry and number of trees to lower the OOB estimate of error rate and have more accurate more.
+
+
+```{r}
+# Random Search
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+set.seed(2023)
+metric <- "Accuracy"
+mtry <- sqrt(ncol(cancer))
+rf_random <- train(diagnosis~., data=cancer, method="rf", metric=metric, tuneLength=15, trControl=control)
+print(rf_random)
+plot(rf_random)
+```
+
+We did random search to find mtry, and the plot shows that at mtry 17 we have the highest accuracy and kappa. So, we will tune our model with new mtry and number of trees.
+
+### Random Forest #2
+
+Given the results, we decided to implement some improvements to our model. We started by modifying the ntree value, decreasing it from 2000 to 1500. Next, we increased the mtry to 17 from 5. 
+
+(maybe delete, discuss)
+Further variable interactions stabilize at a slower rate than error, and given our large number of independent variables, we decided to take a make the new ntree value an odd number so ties can be broken.
+
+### Random Forest #2 Model
+```{r, results='hide'}
+set.seed(2023)  
+cancer_RF2 = randomForest((diagnosis)~.,      
+                            cancer_train,    
+                            #y = NULL,      
+                            #subset = NULL,     
+                            #xtest = NULL,     
+                            #ytest = NULL,     
+                            ntree = 1500,     
+                            mtry = 17,         
+                            replace = TRUE,   
+                            #classwt = NULL,  
+                            #strata = NULL,  
+                            sampsize = 100,  
+                            nodesize = 5,   
+                            #maxnodes = NULL, 
+                            importance = TRUE, 
+                            #localImp = FALSE,  
+                            proximity = FALSE, 
+                            norm.votes = TRUE,  
+                            do.trace = TRUE,   
+                            keep.forest = TRUE, 
+                            keep.inbag = TRUE) 
+```
+
+
+```{r, echo=T}
+cancer_RF2
+cancer_RF2$call
+cancer_RF2$confusion
+
+```
+
+We can see that the OOB estimate of error rate decreased to 4.68% from 4.87%. This is our desired outcome, so we will be create confusion matrix to observe the performance of the model. 
+
+### Confusion Matrix #2
+```{r, echo=T}
+cancer_RF_acc2 = sum(cancer_RF2$confusion[row(cancer_RF2$confusion) == 
+                                                col(cancer_RF2$confusion)]) / 
+  sum(cancer_RF2$confusion)
+cancer_RF_acc2
+```
+
+```{r, echo=T, results='hide'}
+# The accuracy of this model is 0.8404
+#### Random forest output ####
+#View(as.data.frame(cancer_RF$votes))
+# The "inbag" argument shows you which data point is included in which trees.
+str(as.data.frame(cancer_RF2$inbag))
+```
+
+```{r}
+print(cancer_RF2)
+```
+
+We can see that the OOB estimate of error rate decreased to 4.68% from 4.87%. This is our desired outcome, so we will be create confusion matrix to observe the performance of the model.
+
+```{r}
+cancer_predict2 = predict(cancer_RF2,    
+                            cancer_test,      
+                            type = "response",   
+                            predict.all = TRUE, 
+                            proximity = FALSE)  
+#cancer_predict
+```
+
+```{r}
+cancer_test_pred2 = data.frame(cancer_test, 
+                                 Prediction = cancer_predict$aggregate)
+
+
+# Create the confusion matrix.
+cancer_test_matrix_RF2 = table(cancer_test_pred2$diagnosis, 
+                            cancer_test_pred2$Prediction)
+
+cancer_test_matrix_RF2
+```
+
+```{r}
+confusionMatrix(cancer_test_pred2$Prediction,cancer_test_pred2$diagnosis,positive = "1", 
+                dnn=c("Prediction", "Actual"), mode = "everything")
+
+```
+
+By observing the confusion matrix, we can tell that the model is not improved, but remained as exactly same as previous one. Our hypothesis is that our model was already working great with high performance. Since this dataset is for cancer breast cancer, we would rather have false positive than false negative. So, our model classifying more false negative than the false positive is not ideal.
+
+
+- maybe remove this part 
+
+
+F1 illustrates the harmonic mean between precision and recall, and it reaches its optimum 1 only if precision and recall are both at 100%. This serves as a more holistic analysis of our model than accuracy values, especially considering the incidence rate of benign cases in the dataset. Further, the purpose of our project involves mitigating false negatives, and this score in its base forms weights classification errors equally, which is not aligned with real preferences. So, in addition to our F1 score, we also implement an F Beta Score, a value with custom weighting of precision and recall. There is additional weight on recall given the severity of false negatives in classification. This is achieved by moving up the beta value to 2, which is the commonly used beta value when recall is preferred over precision.
+
+
+```{r, echo=T, results='hide'}
+#View(as.data.frame(cancer_RF2$inbag))
+inbag <- as.data.frame(cancer_RF2$inbag)
+sum(inbag[,1500])
+```
+
+```{r, echo=T, results='hide'}
+dim(cancer_RF2$inbag)
+```
+
+```{r}
+print(cancer_RF2)
+```
+
+
+### General Error Rate
+```{r, echo=T}
+err.rate2 <- as.data.frame(cancer_RF2$err.rate)
+err.rate2[1500,]
+```
+
+```{r}
+#cancer_RF$confusion
+#cancer_RF2$confusion
+```
+
+### Visualizing the Result 2
+```{r, echo=T}
+#### Visualize random forest results ####
+# Let's visualize the results of the random forest.
+# Let's start by looking at how the error rate changes as we add more trees.
+cancer_RF_error2 = data.frame(1:nrow(cancer_RF2$err.rate),
+                                cancer_RF2$err.rate)
+#View(cancer_RF_error2)
+colnames(cancer_RF_error2) = c("Number of Trees", "Out of the Box",
+                                 "Benign", "Malignant")
+# Add another variable that measures the difference between the error rates, in
+# some situations we would want to minimize this but need to use caution because
+# it could be that the differences are small but that both errors are really high,
+# just another point to track. 
+cancer_RF_error2$Diff <- cancer_RF_error2$`Benign`-cancer_RF_error2$`Malignant`
+#View(cancer_RF_error)
+#rm(fig)
+fig2 <- plot_ly(x=cancer_RF_error2$`Number of Trees`, y=cancer_RF_error2$Diff,name="Diff", type = 'scatter', mode = 'lines')
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Out of the Box`, name="OOB_Er")
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Malignant`, name="Malignant")
+fig2 <- fig2 %>% add_trace(y=cancer_RF_error2$`Benign`, name="Benign")
+fig2
+```
+
+### Analysis beyond Accuracy
+
+```{r}
+#varImpPlot(cancer_RF2,     #<- the randomForest model to use
+#           sort = TRUE,        #<- whether to sort variables by decreasing order of importance
+#           n.var = 10,        #<- number of variables to display
+#           main = "Important Factors for Diagnosis",
+           #cex = 2,           #<- size of characters or symbols
+#           bg = "white",       #<- background color for the plot
+#           color = "blue",     #<- color to use for the points and labels
+#           lcolor = "orange")  #<- color to use for the horizontal lines
+```
+
+
+```{r, echo=T}
+
+#pred1 <- predict(cancer_RF,type = "prob")
+
+#Traditional F1 Score
+#F1 <- F1_Score(cancer$diagnosis,pred1[1:569])
+#F1
+
+# F Beta Score with custom weighting of precision and recall: there is additional weight on recall given the severity of false negatives in classification. This is achieved by moving up the beta value to 2, the common beta value when recall is preferred over precision
+#FBeta <- FBeta_Score(cancer$diagnosis,pred1[1:569], positive = 1, beta = 2)
+
+#FBeta
+
+# variable importance plot 
+variableimportance <- varImpPlot(cancer_RF2, sort = TRUE,main = "Variable Importance scale", type = 2)
+
+
+```
+
+The mean decrease in Gini coefficient is a measure of how each variable contributes to the homogeneity of the nodes and leaves in the resulting random forest. The higher the value of mean decrease Gini score, the higher the importance of the variable in the model. It basically represents the mean decrease in node impurity (and not the mean decrease in accuracy). 
+
+
+# Conclusions/Limitations

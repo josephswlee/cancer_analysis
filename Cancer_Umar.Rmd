@@ -436,14 +436,10 @@ For context, Random forest creates random uncorrelated decision trees that consi
 
 First, we will run a random forest and assess its base merits and shortfalls. After some tuning, we expect to achieve small false negatives with a more realistic split in diagnosis status (e.g. 12% of women are expected to develop malignant breast cancer, not 38%). We discussed taking a subset of the test set that intentionally oversamples the minority class. We do this to find the minimum proportion needed for a training set that allows for a defensible false negative rate in eventual prediction. First, we must understand the quality of the model with a somewhat balanced set:
 
-```{r}
-setwd("~/Dev/DS4002/4002_handsOn/project1/cancer_analysis/")
-```
-
 
 ```{r}
 cancer2 = read.csv("./cancer.csv")
-View(cancer2)
+#View(cancer2)
 cancer2$diagnosis <- as.factor(cancer2$diagnosis)
 str(cancer2$diagnosis)
 
