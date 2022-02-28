@@ -10,8 +10,10 @@ output:
     toc_float: yes
     code_folding: hide
   pdf_document:
-    toc: yes
     
+    toc: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 <style>
@@ -432,7 +434,24 @@ This k-means clustered 3D scatterplot does a decent job visualizing the data, an
 
 For context, Random forest creates random uncorrelated decision trees that considers randomness and bagging to deliver a classification prediction based in the aggregate outcomes of individual binary splits and terminal nodes. There is an exhaustive search over all variables and possible split points to find the split point that best reduces the node impurity. Then, the ideal split is set and this process repeats in the left and right leaves in turn, recursively, until some stopping rules are met.
 
-First, we will run a random forest and assess its base merits and shortfalls. After some tuning, we expect to achieve small false negatives with a more realistic split in diagnosis status (e.g. 12% of women are expected to develop malignant breast cancer, not 38%). We discussed taking a subset of the test set that intentionally oversamples the minority class. We do this to find the minimum proportion needed for a training set that allows for a defensible false negative rate in eventual prediction.   First, we must understand the quality of the model with a somewhat balanced set:
+First, we will run a random forest and assess its base merits and shortfalls. After some tuning, we expect to achieve small false negatives with a more realistic split in diagnosis status (e.g. 12% of women are expected to develop malignant breast cancer, not 38%). We discussed taking a subset of the test set that intentionally oversamples the minority class. We do this to find the minimum proportion needed for a training set that allows for a defensible false negative rate in eventual prediction. First, we must understand the quality of the model with a somewhat balanced set:
+
+```{r}
+setwd("~/Dev/DS4002/4002_handsOn/project1/cancer_analysis/")
+```
+
+
+```{r}
+cancer2 = read.csv("./cancer.csv")
+View(cancer2)
+cancer2$diagnosis <- as.factor(cancer2$diagnosis)
+str(cancer2$diagnosis)
+
+cancer2 %>% count(diagnosis) %>%
+  group_by(diagnosis)
+ # summarize(perc_dx = round((n / 569)* 100, 2))
+```
+
 
 
 ### Row Partition
@@ -441,12 +460,8 @@ sample_rows = 1:nrow(cancer)
 #sample_rows
 set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
 test_rows = sample(sample_rows,
-                   dim(cancer)[1]*.10, #start with 10% of our dataset, could do 20%
-                   # but random forest does require more training data because of the 
-                   # sampling so 90% might be a better approach with this small of a dataset
-                   replace = FALSE)# We don't want duplicate samples
-# Partition the data between training and test sets using the row numbers the
-# sample() function selected.
+                   dim(cancer)[1]*.10,
+                   replace = FALSE)
 cancer_train = cancer[-test_rows,]
 cancer_test = cancer[test_rows,]
 dim(cancer)
@@ -456,17 +471,13 @@ dim(cancer)
 ###### for tune
 set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
 test_rows = sample(sample_rows,
-                   dim(cancer_test)[1]*.50, #start with 10% of our dataset, could do 20%
-                   # but random forest does require more training data because of the 
-                   # sampling so 90% might be a better approach with this small of a dataset
+                   dim(cancer_test)[1]*.50, 
                    replace = FALSE)# We don't want duplicate samples
 tune = cancer_test[-test_rows,]
 test = cancer_test[test_rows,]
 set.seed(1984) #sample(x, size, replace = FALSE, prob = NULL)
 test_rows = sample(sample_rows,
-                   dim(tune)[1]*.50, #start with 10% of our dataset, could do 20%
-                   # but random forest does require more training data because of the 
-                   # sampling so 90% might be a better approach with this small of a dataset
+                   dim(tune)[1]*.50, 
                    replace = FALSE)# We don't want duplicate samples
 x_tune = tune[-test_rows,]
 y_tune = tune[test_rows,]
@@ -487,33 +498,40 @@ mytry_tune(cancer) #5.477226
 # use actual mytry tuner rather than square root? This rule is used for rough estimations...
 ```
 
+```{r}
+control <- trainControl(method="repeatedcv", number=5, repeats=3, search="random")
+mtry <- sqrt(ncol(cancer))
+rf_random <- train(diagnosis~., data=cancer, method="rf", metric=metric, tuneLength=15, trControl=control)
+print(rf_random)
+```
+
 
 ### Random Forest Model #1
 ```{r, echo=TRUE, results='hide'}
 set.seed(2023)  
-cancer_RF = randomForest((diagnosis)~.,          #<- Formula: response variable ~ predictors.
-                            #   The period means 'use all other variables in the data'.
-                            cancer_train,     #<- A data frame with the variables to be used.
-                            #y = NULL,           #<- A response vector. This is unnecessary because we're specifying a response formula.
-                            #subset = NULL,      #<- This is unnecessary because we're using all the rows in the training data set.
-                            #xtest = NULL,       #<- This is already defined in the formula by the ".".
-                            #ytest = NULL,       #<- This is already defined in the formula by "PREGNANT".
-                            ntree = 500,        #<- Number of trees to grow. This should not be set to too small a number, to ensure that every input row gets classified at least a few times.
-                            mtry = 5,            #<- Number of variables randomly sampled as candidates at each split. Default number for classification is sqrt(# of variables). Default number for regression is (# of variables / 3).
-                            replace = TRUE,      #<- Should sampled data points be replaced.
-                            #classwt = NULL,     #<- Priors of the classes. Use this if you want to specify what proportion of the data SHOULD be in each class. This is relevant if your sample data is not completely representative of the actual population 
-                            #strata = NULL,      #<- Not necessary for our purpose here.
-                            sampsize = 100,      #<- Size of sample to draw each time.
-                            nodesize = 5,        #<- Minimum numbers of data points in terminal nodes.
-                            #maxnodes = NULL,    #<- Limits the number of maximum splits. 
-                            importance = TRUE,   #<- Should importance of predictors be assessed?
-                            #localImp = FALSE,   #<- Should casewise importance measure be computed? (Setting this to TRUE will override importance.)
-                            proximity = FALSE,    #<- Should a proximity measure between rows be calculated?
-                            norm.votes = TRUE,   #<- If TRUE (default), the final result of votes are expressed as fractions. If FALSE, raw vote counts are returned (useful for combining results from different runs).
-                            do.trace = TRUE,     #<- If set to TRUE, give a more verbose output as randomForest is run.
-                            keep.forest = TRUE,  #<- If set to FALSE, the forest will not be retained in the output object. If xtest is given, defaults to FALSE.
-                            keep.inbag = TRUE)   #<- Should an n by ntree matrix be returned that keeps track of which samples are in-bag in which trees? 
+cancer_RF = randomForest((diagnosis)~.,        
+                            cancer_train,    
+                            #y = NULL,         
+                            #subset = NULL,    
+                            #xtest = NULL,  
+                            #ytest = NULL,  
+                            ntree = 500,        
+                            mtry = 5,           
+                            replace = TRUE,   
+                            #classwt = NULL, 
+                            #strata = NULL,    
+                            sampsize = 100,  
+                            nodesize = 5,      
+                            #maxnodes = NULL,  
+                            importance = TRUE, 
+                            #localImp = FALSE, 
+                            proximity = FALSE,   
+                            norm.votes = TRUE, 
+                            do.trace = TRUE,   
+                            keep.forest = TRUE, 
+                            keep.inbag = TRUE)   
 ```
+
 
 
 ```{r, echo=T,results='hide'}
@@ -551,14 +569,11 @@ inbag <- as.data.frame(cancer_RF$inbag)
 sum(inbag[,500])
 ```
 
-Interpretation
-
 
 ```{r, echo=T, results='hide'}
 dim(cancer_RF$inbag)
 ```
 
-Interpretation
 
 
 ### General Error Rate
@@ -590,6 +605,44 @@ fig <- fig %>% add_trace(y=cancer_RF_error$`Benign`, name="Benign")
 fig
 ```
 
+Evaluating Model
+```{r}
+cancer_predict = predict(cancer_RF,    
+                            cancer_test,      
+                            type = "response",   
+                            predict.all = TRUE, 
+                            proximity = FALSE)  
+#cancer_predict
+```
+
+```{r}
+cancer_test_pred = data.frame(cancer_test, 
+                                 Prediction = cancer_predict$aggregate)
+
+
+
+# Create the confusion matrix.
+cancer_test_matrix_RF = table(cancer_test_pred$diagnosis, 
+                            cancer_test_pred$Prediction)
+
+cancer_test_matrix_RF
+```
+
+```{r}
+# Calculate the misclassification or the error rate.
+cancer_test_error_rate_RF = sum(cancer_test_matrix_RF[row(cancer_test_matrix_RF) != 
+                                                    col(cancer_test_matrix_RF)]) / 
+  sum(cancer_test_matrix_RF)
+
+cancer_test_error_rate_RF
+```
+
+```{r}
+confusionMatrix(cancer_test_pred$Prediction,cancer_test_pred$diagnosis,positive = "1", 
+                dnn=c("Prediction", "Actual"), mode = "everything")
+```
+
+
 ### Analysis
 
 
@@ -604,28 +657,27 @@ Further variable interactions stabilize at a slower rate than error, and given o
 ### Random Forest #2 Model
 ```{r, results='hide'}
 set.seed(2023)  
-cancer_RF2 = randomForest((diagnosis)~.,          #<- Formula: response variable ~ predictors.
-                            #   The period means 'use all other variables in the data'.
-                            cancer_train,     #<- A data frame with the variables to be used.
-                            #y = NULL,           #<- A response vector. This is unnecessary because we're specifying a response formula.
-                            #subset = NULL,      #<- This is unnecessary because we're using all the rows in the training data set.
-                            #xtest = NULL,       #<- This is already defined in the formula by the ".".
-                            #ytest = NULL,       #<- This is already defined in the formula by "PREGNANT".
-                            ntree = 1000,        #<- Number of trees to grow. This should not be set to too small a number, to ensure that every input row gets classified at least a few times.
-                            mtry = 5,            #<- Number of variables randomly sampled as candidates at each split. Default number for classification is sqrt(# of variables). Default number for regression is (# of variables / 3).
-                            replace = TRUE,      #<- Should sampled data points be replaced.
-                            #classwt = NULL,     #<- Priors of the classes. Use this if you want to specify what proportion of the data SHOULD be in each class. This is relevant if your sample data is not completely representative of the actual population 
-                            #strata = NULL,      #<- Not necessary for our purpose here.
-                            sampsize = 200,      #<- Size of sample to draw each time.
-                            nodesize = 5,        #<- Minimum numbers of data points in terminal nodes.
-                            #maxnodes = NULL,    #<- Limits the number of maximum splits. 
-                            importance = TRUE,   #<- Should importance of predictors be assessed?
-                            #localImp = FALSE,   #<- Should casewise importance measure be computed? (Setting this to TRUE will override importance.)
-                            proximity = FALSE,    #<- Should a proximity measure between rows be calculated?
-                            norm.votes = TRUE,   #<- If TRUE (default), the final result of votes are expressed as fractions. If FALSE, raw vote counts are returned (useful for combining results from different runs).
-                            do.trace = TRUE,     #<- If set to TRUE, give a more verbose output as randomForest is run.
-                            keep.forest = TRUE,  #<- If set to FALSE, the forest will not be retained in the output object. If xtest is given, defaults to FALSE.
-                            keep.inbag = TRUE)   #<- Should an n by ntree matrix be returned that keeps track of which samples are in-bag in which trees? 
+cancer_RF2 = randomForest((diagnosis)~.,      
+                            cancer_train,    
+                            #y = NULL,      
+                            #subset = NULL,     
+                            #xtest = NULL,     
+                            #ytest = NULL,     
+                            ntree = 1000,     
+                            mtry = 5,         
+                            replace = TRUE,   
+                            #classwt = NULL,  
+                            #strata = NULL,  
+                            sampsize = 200,  
+                            nodesize = 5,   
+                            #maxnodes = NULL, 
+                            importance = TRUE, 
+                            #localImp = FALSE,  
+                            proximity = FALSE, 
+                            norm.votes = TRUE,  
+                            do.trace = TRUE,   
+                            keep.forest = TRUE, 
+                            keep.inbag = TRUE) 
 ```
 
 
