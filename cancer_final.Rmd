@@ -76,6 +76,7 @@ library(corrplot)
 
 Read in the data.
 ```{r}
+setwd("~/Dev/DS4002/4002_handsOn/project1/cancer_analysis")
 cancer = read.csv("./cancer.csv")
 cancer_default = read.csv("./cancer.csv")
 #cancer <- read.csv("/cloud/project/cancer.csv")
@@ -520,7 +521,7 @@ cancer_RF$confusion
 print(cancer_RF)
 ```
 
-The Out of Bag error rate is 4.87% for this number of trees. As we tried the rough estimate of finding the mtry, we will try random search method to find better mtry value for the second model.
+The Out of Bag error rate is 4.68% for this number of trees. As we tried the rough estimate of finding the mtry, we will try random search method to find better mtry value for the second model.
 
 ```{r}
 cancer_predict = predict(cancer_RF,    
@@ -697,7 +698,7 @@ str(as.data.frame(cancer_RF2$inbag))
 print(cancer_RF2)
 ```
 
-We can see that the OOB estimate of error rate decreased to 4.68% from 4.87%. This is our desired outcome, so we will be create confusion matrix to observe the performance of the model.
+We can see that the OOB estimate of error rate remains 4.68%. This is not our desired outcome, so we will be create confusion matrix to observe the performance of the model.
 
 ```{r}
 cancer_predict2 = predict(cancer_RF2,    
@@ -727,12 +728,6 @@ confusionMatrix(cancer_test_pred2$Prediction,cancer_test_pred2$diagnosis,positiv
 ```
 
 By observing the confusion matrix, we can tell that the model is not improved, but remained as exactly same as previous one. Our hypothesis is that our model was already working great with high performance. Since this dataset is for cancer breast cancer, we would rather have false positive than false negative. So, our model classifying more false negative than the false positive is not ideal.
-
-
-- maybe remove this part 
-
-
-F1 illustrates the harmonic mean between precision and recall, and it reaches its optimum 1 only if precision and recall are both at 100%. This serves as a more holistic analysis of our model than accuracy values, especially considering the incidence rate of benign cases in the dataset. Further, the purpose of our project involves mitigating false negatives, and this score in its base forms weights classification errors equally, which is not aligned with real preferences. So, in addition to our F1 score, we also implement an F Beta Score, a value with custom weighting of precision and recall. There is additional weight on recall given the severity of false negatives in classification. This is achieved by moving up the beta value to 2, which is the commonly used beta value when recall is preferred over precision.
 
 
 ```{r, echo=T, results='hide'}
