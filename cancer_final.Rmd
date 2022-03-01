@@ -822,3 +822,9 @@ The mean decrease in Gini coefficient is a measure of how each variable contribu
 
 
 # Conclusions/Limitations
+
+Overall, we found that both methods exemplified strong accuracy metrics along with compelling F1, Kappa, & FBeta Scores. The results may be improved by better data preparation or using other methods, like SVM. However, the current results surpass human level performance and seemed to be maximized, so, it could be deployed as second opinion for the doctor in a very specific patient situation. Still, The primary goal of model validation is to estimate how the model will perform on unseen data that reflects real world circumstances at scale. Even with Cross-validation, feature tuning, and multiple classification methods both supervised and unsupervised were unable to produce external validity given the discrepancies in feature inclusion across studies and observations in the breast cancer space. 
+
+Further, decision trees tend to have high variance when they utilize different training and test sets of the same data, since they tend to overfit on training data. This leads to poor performance on unseen data. Further, classifiers can be negatively impacted by variables that are highly correlated or offer little variance explanation. Given our large ntree value and small data sample, we were no subject to these issues neccessarily. But, looking ahead, testing this model on unseen, more complex data would likely require dimensionalty reductions in light of lowered precision and recall.
+
+
